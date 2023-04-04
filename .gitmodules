@@ -1,3 +1,18 @@
 [submodule "lib/forge-std"]
 	path = lib/forge-std
 	url = https://github.com/foundry-rs/forge-std
+[submodule "lib/splits-utils"]
+	path = lib/splits-utils
+	url = https://github.com/0xsplits/splits-utils
+[submodule "lib/splits-oracle"]
+	path = lib/splits-oracle
+	url = https://github.com/0xSplits/splits-oracle
+[submodule "lib/solady"]
+	path = lib/solady
+	url = https://github.com/vectorized/solady
+[submodule "lib/splits-swapper"]
+	path = lib/splits-swapper
+	url = https://github.com/0xsplits/splits-swapper
+[submodule "lib/splits-pass-through-wallet"]
+	path = lib/splits-pass-through-wallet
+	url = https://github.com/0xsplits/splits-pass-through-wallet
