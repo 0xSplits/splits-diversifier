@@ -3,12 +3,12 @@ pragma solidity ^0.8.17;
 
 import {CreateOracleParams, IOracle, IOracleFactory} from "splits-oracle/interfaces/IOracleFactory.sol";
 import {ISplitMain} from "splits-utils/interfaces/ISplitMain.sol";
-import {LibSort} from "solady/utils/LibSort.sol";
 import {
     PassThroughWalletFactory, PassThroughWalletImpl
 } from "splits-pass-through-wallet/PassThroughWalletFactory.sol";
 import {SwapperFactory, SwapperImpl} from "splits-swapper/SwapperFactory.sol";
 import {WalletImpl} from "splits-utils/WalletImpl.sol";
+import {_sortRecipients} from "splits-utils/recipients.sol";
 
 // TODO: review comments
 
@@ -21,12 +21,6 @@ import {WalletImpl} from "splits-utils/WalletImpl.sol";
 /// Please be aware, owner has _FULL CONTROL_ of the deployment.
 /// @dev This contract uses token = address(0) to refer to ETH.
 contract DiversifierFactory {
-    /// -----------------------------------------------------------------------
-    /// libraries
-    /// -----------------------------------------------------------------------
-
-    using LibSort for uint256[];
-
     /// -----------------------------------------------------------------------
     /// events
     /// -----------------------------------------------------------------------
@@ -46,12 +40,12 @@ contract DiversifierFactory {
         address owner;
         bool paused;
         Recipient[] recipients;
-        uint32[] initPercentAllocations;
     }
 
     struct Recipient {
         address account;
         SwapperImpl.InitParams createSwapper;
+        uint32 percentAllocation;
     }
 
     /// -----------------------------------------------------------------------
@@ -63,7 +57,6 @@ contract DiversifierFactory {
     /// -----------------------------------------------------------------------
 
     address internal constant ZERO_ADDRESS = address(0);
-    uint256 internal constant UINT96_BITS = 96;
 
     ISplitMain public immutable splitMain;
     SwapperFactory public immutable swapperFactory;
@@ -116,53 +109,20 @@ contract DiversifierFactory {
     /// functions - private & internal
     /// -----------------------------------------------------------------------
 
-    // TODO: break into shorter internal fns for fuzzing etc ?
-
     function _createDiversifier(CreateDiversifierParams memory params_) internal returns (address diversifier) {
-        // create pass-through wallet w self as owner
+        // create pass-through wallet w self as owner & no passThrough
         PassThroughWalletImpl passThroughWallet = passThroughWalletFactory.createPassThroughWallet(
             PassThroughWalletImpl.InitParams({owner: address(this), paused: params_.paused, passThrough: ZERO_ADDRESS})
         );
 
-        // create swappers & prep array to be in-place sorted for createSplit
-        // by packing initPercentAllocations into the right-most 12 bytes
-        uint256 length = params_.recipients.length;
-        uint256[] memory packedRecipients = new uint256[](length);
-        for (uint256 i; i < length;) {
-            Recipient memory recipient = params_.recipients[i];
-            address account = _isSwapper(recipient)
-                ? address(swapperFactory.createSwapper(recipient.createSwapper))
-                : recipient.account;
-            packedRecipients[i] = (uint256(uint160(account)) << UINT96_BITS) | params_.initPercentAllocations[i];
-
-            unchecked {
-                ++i;
-            }
-        }
-
-        // sort packedRecipients (recipient|allocation) & unpack
-        packedRecipients.sort();
-        address[] memory sortedAccounts;
-        /// @solidity memory-safe-assembly
-        assembly {
-            sortedAccounts := packedRecipients // re-use memory
-        }
-        uint32[] memory sortedInitPercentAllocations = new uint32[](length);
-        for (uint256 i; i < length;) {
-            uint256 packedRecipient = packedRecipients[i];
-            sortedInitPercentAllocations[i] = uint32(packedRecipient);
-            sortedAccounts[i] = address(uint160(packedRecipient >> UINT96_BITS));
-
-            unchecked {
-                ++i;
-            }
-        }
+        (address[] memory accounts, uint32[] memory percentAllocations) = _parseRecipients(params_.recipients);
+        (accounts, percentAllocations) = _sortRecipients(accounts, percentAllocations);
 
         // create split w pass-through wallet as controller
         address passThroughSplit = payable(
             splitMain.createSplit({
-                accounts: sortedAccounts,
-                percentAllocations: sortedInitPercentAllocations,
+                accounts: accounts,
+                percentAllocations: percentAllocations,
                 distributorFee: 0,
                 controller: address(passThroughWallet)
             })
@@ -174,6 +134,27 @@ contract DiversifierFactory {
 
         diversifier = address(passThroughWallet);
         emit CreateDiversifier(diversifier);
+    }
+
+    // TODO: test
+    function _parseRecipients(Recipient[] memory recipients_)
+        internal
+        returns (address[] memory accounts, uint32[] memory percentAllocations)
+    {
+        uint256 length = recipients_.length;
+        accounts = new address[](length);
+        percentAllocations = new uint32[](length);
+        for (uint256 i; i < length;) {
+            Recipient memory recipient = recipients_[i];
+            accounts[i] = _isSwapper(recipient)
+                ? address(swapperFactory.createSwapper(recipient.createSwapper))
+                : recipient.account;
+            percentAllocations[i] = recipient.percentAllocation;
+
+            unchecked {
+                ++i;
+            }
+        }
     }
 
     function _isSwapper(Recipient memory recipient_) internal pure returns (bool) {

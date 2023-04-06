@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.17;
 
-import {BaseTest} from "splits-tests/base.t.sol";
+import "splits-tests/base.t.sol";
 
 import {DiversifierFactory} from "src/DiversifierFactory.sol";
 
@@ -14,14 +14,12 @@ import {
 import {SwapperFactory, SwapperImpl} from "splits-swapper/SwapperFactory.sol";
 import {WalletImpl} from "splits-utils/WalletImpl.sol";
 
-// TODO: ISplitMain conflicts w BaseTest ?
+// TODO: add constrained fuzzing utils for split creation params (e.g. len(acc) == len(alloc) && sum(alloc) == 1e6)
 // TODO: add fuzzing
 
 contract DiversifierFactoryTest is BaseTest {
     event CreateDiversifier(address indexed diversifier);
     event CreateSwapper(SwapperImpl indexed swapper, SwapperImpl.InitParams params);
-
-    IUniswapV3Factory constant UNISWAP_V3_FACTORY = IUniswapV3Factory(0x1F98431c8aD98523631AE4a59f267346ea31F984);
 
     ISplitMain splitMain;
     UniV3OracleFactory oracleFactory;
@@ -34,8 +32,6 @@ contract DiversifierFactoryTest is BaseTest {
     DiversifierFactory.Recipient recipient_isSwapper;
     DiversifierFactory.Recipient recipient_isNotSwapper;
 
-    uint32[] initPercentAllocations;
-
     CreateOracleParams createOracleParams;
     SwapperImpl.InitParams swapperInit;
 
@@ -45,9 +41,9 @@ contract DiversifierFactoryTest is BaseTest {
         string memory MAINNET_RPC_URL = vm.envString("MAINNET_RPC_URL");
         vm.createSelectFork(MAINNET_RPC_URL, BLOCK_NUMBER);
 
-        splitMain = ISplitMain(address(SPLIT_MAIN));
+        splitMain = ISplitMain(SPLIT_MAIN);
         oracleFactory = new UniV3OracleFactory({
-            uniswapV3Factory_: UNISWAP_V3_FACTORY,
+            uniswapV3Factory_: IUniswapV3Factory(UNISWAP_V3_FACTORY),
             weth9_: WETH9
         });
         swapperFactory = new SwapperFactory();
@@ -59,17 +55,6 @@ contract DiversifierFactoryTest is BaseTest {
             passThroughWalletFactory_: passThroughWalletFactory
         });
 
-        swapperInit = SwapperImpl.InitParams({
-            owner: users.bob,
-            paused: false,
-            beneficiary: ZERO_ADDRESS,
-            tokenToBeneficiary: ZERO_ADDRESS,
-            oracle: IOracle(ZERO_ADDRESS)
-            });
-        recipient_isSwapper = DiversifierFactory.Recipient({
-            account: ZERO_ADDRESS,
-            createSwapper: swapperInit
-        });
         recipient_isNotSwapper = DiversifierFactory.Recipient({
             account: users.alice,
             createSwapper: SwapperImpl.InitParams({
@@ -78,14 +63,25 @@ contract DiversifierFactoryTest is BaseTest {
                 beneficiary: ZERO_ADDRESS,
                 tokenToBeneficiary: ZERO_ADDRESS,
                 oracle: IOracle(ZERO_ADDRESS)
-            })
+            }),
+            percentAllocation: 60_00_00
         });
 
-        recipients.push(recipient_isSwapper);
-        recipients.push(recipient_isNotSwapper);
+        swapperInit = SwapperImpl.InitParams({
+            owner: users.bob,
+            paused: false,
+            beneficiary: ZERO_ADDRESS,
+            tokenToBeneficiary: ZERO_ADDRESS,
+            oracle: IOracle(ZERO_ADDRESS)
+        });
+        recipient_isSwapper = DiversifierFactory.Recipient({
+            account: ZERO_ADDRESS,
+            createSwapper: swapperInit,
+            percentAllocation: 40_00_00
+        });
 
-        initPercentAllocations.push(PERCENTAGE_SCALE / 2); // = 500_000
-        initPercentAllocations.push(PERCENTAGE_SCALE / 2); // = 500_000
+        recipients.push(recipient_isNotSwapper);
+        recipients.push(recipient_isSwapper);
 
         createOracleParams = CreateOracleParams({
             factory: IOracleFactory(address(oracleFactory)),
@@ -97,7 +93,7 @@ contract DiversifierFactoryTest is BaseTest {
                     defaultScaledOfferFactor: 0,
                     pairOverrides: new UniV3OracleImpl.SetPairOverrideParams[](0)
                 })
-            )
+                )
         });
     }
 
@@ -109,8 +105,9 @@ contract DiversifierFactoryTest is BaseTest {
     /// tests - basic - createDiversifier
     /// -----------------------------------------------------------------------
 
-    function test_createDiversifier_createsPassThroughWallet() public {
+    function testFork_createDiversifier_createsPassThroughWallet() public {
         DiversifierFactory.CreateDiversifierParams memory createDiversifierParams = _createDiversifierParams();
+
         vm.expectCall({
             callee: address(passThroughWalletFactory),
             msgValue: 0 ether,
@@ -123,66 +120,35 @@ contract DiversifierFactoryTest is BaseTest {
                         passThrough: ZERO_ADDRESS
                     })
                 )
-            )
+                )
         });
         address diversifier = diversifierFactory.createDiversifier(createDiversifierParams);
+
         assertTrue(splitMain.getHash(PassThroughWalletImpl(diversifier).$passThrough()) != bytes32(0));
         assertEq(PassThroughWalletImpl(diversifier).$owner(), createDiversifierParams.owner);
     }
 
-    function test_createDiversifier_createsSwappers() public {
+    function testFork_createDiversifier_createsSwappers() public {
         DiversifierFactory.CreateDiversifierParams memory createDiversifierParams = _createDiversifierParams();
 
-        createDiversifierParams.recipients[0] = DiversifierFactory.Recipient({
-            account: ZERO_ADDRESS,
-            createSwapper: SwapperImpl.InitParams({
-                owner: users.alice,
-                paused: false,
-                beneficiary: ZERO_ADDRESS,
-                tokenToBeneficiary: ZERO_ADDRESS,
-                oracle: IOracle(ZERO_ADDRESS)
-            })
+        vm.expectCall({
+            callee: address(swapperFactory),
+            msgValue: 0 ether,
+            data: abi.encodeCall(SwapperFactory.createSwapper, (recipient_isSwapper.createSwapper))
         });
-        createDiversifierParams.recipients[1] = DiversifierFactory.Recipient({
-            account: ZERO_ADDRESS,
-            createSwapper: SwapperImpl.InitParams({
-                owner: users.bob,
-                paused: false,
-                beneficiary: ZERO_ADDRESS,
-                tokenToBeneficiary: ZERO_ADDRESS,
-                oracle: IOracle(ZERO_ADDRESS)
-            })
-        });
-
-        uint256 length = createDiversifierParams.recipients.length;
-        for (uint256 i; i < length; i++) {
-            vm.expectCall({
-                callee: address(swapperFactory),
-                msgValue: 0 ether,
-                data: abi.encodeCall(SwapperFactory.createSwapper, (createDiversifierParams.recipients[i].createSwapper))
-            });
-        }
         diversifierFactory.createDiversifier(createDiversifierParams);
     }
 
-    function test_createDiversifier_createsSplit() public {
+    function testFork_createDiversifier_createsSplit() public {
         DiversifierFactory.CreateDiversifierParams memory createDiversifierParams = _createDiversifierParams();
 
-        // use regular accounts to avoid mocking swapper return addresses
-        address[] memory accounts = new address[](2);
-        (accounts[0], accounts[1]) = (users.alice < users.bob) ? (users.alice, users.bob) : (users.bob, users.alice);
-        for (uint256 i; i < accounts.length; i++) {
-            createDiversifierParams.recipients[i] = DiversifierFactory.Recipient({
-                account: accounts[i],
-                createSwapper: SwapperImpl.InitParams({
-                    owner: ZERO_ADDRESS,
-                    paused: false,
-                    beneficiary: ZERO_ADDRESS,
-                    tokenToBeneficiary: ZERO_ADDRESS,
-                    oracle: IOracle(ZERO_ADDRESS)
-                })
-            });
-        }
+        // mock swapper return address
+        vm.mockCall({
+            callee: address(swapperFactory),
+            msgValue: 0,
+            data: abi.encodeCall(SwapperFactory.createSwapper, (swapperInit)),
+            returnData: abi.encode(users.bob)
+        });
 
         // create passThroughWallet to capture address & feed into fn via mock
         PassThroughWalletImpl passThroughWallet = passThroughWalletFactory.createPassThroughWallet(
@@ -205,19 +171,32 @@ contract DiversifierFactoryTest is BaseTest {
                         passThrough: ZERO_ADDRESS
                     })
                 )
-            ),
+                ),
             returnData: abi.encode(passThroughWallet)
         });
+
+        // sort createSplit params
+        address[] memory accounts = new address[](2);
+        (accounts[0], accounts[1]) = (users.alice, users.bob);
+        uint32[] memory percentAllocations = new uint32[](2);
+        (percentAllocations[0], percentAllocations[1]) = (
+            createDiversifierParams.recipients[0].percentAllocation,
+            createDiversifierParams.recipients[1].percentAllocation
+        );
+        if (users.alice > users.bob) {
+            (accounts[0], accounts[1]) = (users.bob, users.alice);
+            (percentAllocations[0], percentAllocations[1]) = (percentAllocations[1], percentAllocations[0]);
+        }
 
         vm.expectCall({
             callee: address(splitMain),
             msgValue: 0 ether,
-            data: abi.encodeCall(ISplitMain.createSplit, (accounts, initPercentAllocations, 0, address(passThroughWallet)))
+            data: abi.encodeCall(ISplitMain.createSplit, (accounts, percentAllocations, 0, address(passThroughWallet)))
         });
         diversifierFactory.createDiversifier(createDiversifierParams);
     }
 
-    function test_createDiversifier_emitsCreateDiversifier() public {
+    function testFork_createDiversifier_emitsCreateDiversifier() public {
         // don't check first topic which is new address
         vm.expectEmit({checkTopic1: false, checkTopic2: true, checkTopic3: true, checkData: true});
         emit CreateDiversifier(ZERO_ADDRESS);
@@ -228,7 +207,7 @@ contract DiversifierFactoryTest is BaseTest {
     /// tests - basic - createOracleAndDiversifier
     /// -----------------------------------------------------------------------
 
-    function test_createOracleAndDiversifier_createsAndUsesOracle() public {
+    function testFork_createOracleAndDiversifier_createsAndUsesOracle() public {
         vm.expectCall({
             callee: address(oracleFactory),
             msgValue: 0 ether,
@@ -237,7 +216,7 @@ contract DiversifierFactoryTest is BaseTest {
         diversifierFactory.createOracleAndDiversifier(_createOracleAndDiversifierParams());
     }
 
-    function test_createOracleAndDiversifier_usesOracle() public {
+    function testFork_createOracleAndDiversifier_usesOracle() public {
         vm.mockCall({
             callee: address(oracleFactory),
             msgValue: 0,
@@ -252,7 +231,7 @@ contract DiversifierFactoryTest is BaseTest {
         diversifierFactory.createOracleAndDiversifier(_createOracleAndDiversifierParams());
     }
 
-    function test_createOracleAndDiversifier_emitsCreateDiversifier() public {
+    function testFork_createOracleAndDiversifier_emitsCreateDiversifier() public {
         // don't check first topic which is new address
         vm.expectEmit({checkTopic1: false, checkTopic2: true, checkTopic3: true, checkData: true});
         emit CreateDiversifier(ZERO_ADDRESS);
@@ -263,7 +242,7 @@ contract DiversifierFactoryTest is BaseTest {
     /// tests - basic - _isSwapper
     /// -----------------------------------------------------------------------
 
-    function test_isSwapper() public {
+    function testFork_isSwapper() public {
         assertTrue(diversifierFactory.exposed_isSwapper(recipient_isSwapper));
         assertFalse(diversifierFactory.exposed_isSwapper(recipient_isNotSwapper));
     }
@@ -276,7 +255,7 @@ contract DiversifierFactoryTest is BaseTest {
     /// tests - fuzz - _isSwapper
     /// -----------------------------------------------------------------------
 
-    function testFuzz_isSwapper(DiversifierFactory.Recipient memory recipient_) public {
+    function testForkFuzz_isSwapper(DiversifierFactory.Recipient memory recipient_) public {
         assertEq(recipient_.account == ZERO_ADDRESS, diversifierFactory.exposed_isSwapper(recipient_));
     }
 
@@ -287,12 +266,7 @@ contract DiversifierFactoryTest is BaseTest {
     /// @dev can't be init'd in setUp & saved to storage bc of nested dynamic array solc error
     /// UnimplementedFeatureError: Copying of type struct DiversifierFactory.Recipient memory[] memory to storage not yet supported.
     function _createDiversifierParams() internal view returns (DiversifierFactory.CreateDiversifierParams memory) {
-        return DiversifierFactory.CreateDiversifierParams({
-            owner: users.alice,
-            paused: false,
-            recipients: recipients,
-            initPercentAllocations: initPercentAllocations
-        });
+        return DiversifierFactory.CreateDiversifierParams({owner: users.alice, paused: false, recipients: recipients});
     }
 
     function _createOracleAndDiversifierParams()
