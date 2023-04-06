@@ -10,8 +10,6 @@ import {SwapperFactory, SwapperImpl} from "splits-swapper/SwapperFactory.sol";
 import {WalletImpl} from "splits-utils/WalletImpl.sol";
 import {_sortRecipients} from "splits-utils/recipients.sol";
 
-// TODO: review comments
-
 /// @title Diversifier Factory
 /// @author 0xSplits
 /// @notice Factory for creating Diversifiers.
@@ -95,7 +93,7 @@ contract DiversifierFactory {
         CreateDiversifierParams memory createDiversifierParams = params_.createDiversifier;
         uint256 length = createDiversifierParams.recipients.length;
         for (uint256 i; i < length;) {
-            // if recipient isn't a swapper, oracle will be discarded
+            // if recipient isn't a swapper, oracle will be discarded anyway
             createDiversifierParams.recipients[i].createSwapper.oracle = oracle;
 
             unchecked {
