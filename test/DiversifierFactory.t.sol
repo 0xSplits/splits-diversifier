@@ -177,7 +177,8 @@ contract DiversifierFactoryTest is BaseTest {
 
         // sort createSplit params
         address[] memory accounts = new address[](2);
-        (accounts[0], accounts[1]) = (users.alice, users.bob);
+        // new swapper address is mock'd to return users.bob
+        (accounts[0], accounts[1]) = (createDiversifierParams.recipients[0].account, users.bob);
         uint32[] memory percentAllocations = new uint32[](2);
         (percentAllocations[0], percentAllocations[1]) = (
             createDiversifierParams.recipients[0].percentAllocation,
@@ -239,6 +240,35 @@ contract DiversifierFactoryTest is BaseTest {
     }
 
     /// -----------------------------------------------------------------------
+    /// tests - basic - _parseRecipients
+    /// -----------------------------------------------------------------------
+
+    function testFork_parseRecipients() public {
+        DiversifierFactory.CreateDiversifierParams memory createDiversifierParams = _createDiversifierParams();
+
+        address[] memory accounts = new address[](2);
+        // new swapper address is mock'd to return users.bob
+        (accounts[0], accounts[1]) = (createDiversifierParams.recipients[0].account, users.bob);
+        uint32[] memory percentAllocations = new uint32[](2);
+        (percentAllocations[0], percentAllocations[1]) = (
+            createDiversifierParams.recipients[0].percentAllocation,
+            createDiversifierParams.recipients[1].percentAllocation
+        );
+
+        vm.mockCall({
+            callee: address(swapperFactory),
+            msgValue: 0,
+            data: abi.encodeCall(SwapperFactory.createSwapper, (swapperInit)),
+            returnData: abi.encode(users.bob)
+        });
+        (address[] memory parsedAccounts, uint32[] memory parsedPercentAllocations) =
+            diversifierFactory.exposed_parseRecipients(recipients);
+
+        assertEq(parsedAccounts, accounts);
+        assertEq(parsedPercentAllocations, percentAllocations);
+    }
+
+    /// -----------------------------------------------------------------------
     /// tests - basic - _isSwapper
     /// -----------------------------------------------------------------------
 
@@ -250,6 +280,39 @@ contract DiversifierFactoryTest is BaseTest {
     /// -----------------------------------------------------------------------
     /// tests - fuzz
     /// -----------------------------------------------------------------------
+
+    /// -----------------------------------------------------------------------
+    /// tests - fuzz - _parseRecipients
+    /// -----------------------------------------------------------------------
+
+    function testForkFuzz_parseRecipients(DiversifierFactory.Recipient[] memory recipients_) public {
+        uint256 length = recipients_.length;
+        address[] memory accounts = new address[](length);
+        uint32[] memory percentAllocations = new uint32[](length);
+        // new swapper addresses are mock'd to return their index
+        for (uint256 i; i < length; i++) {
+            DiversifierFactory.Recipient memory recipient = recipients_[i];
+            percentAllocations[i] = recipient.percentAllocation;
+            if (recipient.account != ZERO_ADDRESS) {
+                accounts[i] = recipient.account;
+            } else {
+                address mockSwapper = address(bytes20(keccak256(abi.encode(recipient.createSwapper))));
+                accounts[i] = mockSwapper;
+                vm.mockCall({
+                    callee: address(swapperFactory),
+                    msgValue: 0,
+                    data: abi.encodeCall(SwapperFactory.createSwapper, (recipient.createSwapper)),
+                    returnData: abi.encode(mockSwapper)
+                });
+            }
+        }
+
+        (address[] memory parsedAccounts, uint32[] memory parsedPercentAllocations) =
+            diversifierFactory.exposed_parseRecipients(recipients_);
+
+        assertEq(parsedAccounts, accounts);
+        assertEq(parsedPercentAllocations, percentAllocations);
+    }
 
     /// -----------------------------------------------------------------------
     /// tests - fuzz - _isSwapper
@@ -287,6 +350,13 @@ contract DiversifierFactoryHarness is DiversifierFactory {
         SwapperFactory swapperFactory_,
         PassThroughWalletFactory passThroughWalletFactory_
     ) DiversifierFactory(splitMain_, swapperFactory_, passThroughWalletFactory_) {}
+
+    function exposed_parseRecipients(DiversifierFactory.Recipient[] memory recipients_)
+        external
+        returns (address[] memory, uint32[] memory)
+    {
+        return _parseRecipients(recipients_);
+    }
 
     function exposed_isSwapper(DiversifierFactory.Recipient memory recipient_) external pure returns (bool) {
         return _isSwapper(recipient_);

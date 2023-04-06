@@ -136,7 +136,6 @@ contract DiversifierFactory {
         emit CreateDiversifier(diversifier);
     }
 
-    // TODO: test
     function _parseRecipients(Recipient[] memory recipients_)
         internal
         returns (address[] memory accounts, uint32[] memory percentAllocations)
