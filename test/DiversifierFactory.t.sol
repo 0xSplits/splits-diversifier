@@ -3,16 +3,18 @@ pragma solidity ^0.8.17;
 
 import "splits-tests/base.t.sol";
 
-import {DiversifierFactory} from "src/DiversifierFactory.sol";
-
-import {CreateOracleParams, IOracle, IOracleFactory} from "splits-oracle/interfaces/IOracleFactory.sol";
+import {CreateOracleParams, IOracleFactory} from "splits-oracle/interfaces/IOracleFactory.sol";
+import {IOracle} from "splits-oracle/interfaces/IOracle.sol";
 import {ISplitMain} from "splits-utils/interfaces/ISplitMain.sol";
-import {IUniswapV3Factory, UniV3OracleFactory, UniV3OracleImpl} from "splits-oracle/UniV3OracleFactory.sol";
-import {
-    PassThroughWalletFactory, PassThroughWalletImpl
-} from "splits-pass-through-wallet/PassThroughWalletFactory.sol";
-import {SwapperFactory, SwapperImpl} from "splits-swapper/SwapperFactory.sol";
+import {IUniswapV3Factory, UniV3OracleFactory} from "splits-oracle/UniV3OracleFactory.sol";
+import {PassThroughWalletImpl} from "splits-pass-through-wallet/PassThroughWalletImpl.sol";
+import {PassThroughWalletFactory} from "splits-pass-through-wallet/PassThroughWalletFactory.sol";
+import {SwapperImpl} from "splits-swapper/SwapperImpl.sol";
+import {SwapperFactory} from "splits-swapper/SwapperFactory.sol";
+import {UniV3OracleImpl} from "splits-oracle/UniV3OracleImpl.sol";
 import {WalletImpl} from "splits-utils/WalletImpl.sol";
+
+import {DiversifierFactory} from "../src/DiversifierFactory.sol";
 
 // TODO: add constrained fuzzing utils for split creation params (e.g. len(acc) == len(alloc) && sum(alloc) == 1e6)
 // TODO: add fuzzing

@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.17;
 
-import {CreateOracleParams, IOracle, IOracleFactory} from "splits-oracle/interfaces/IOracleFactory.sol";
-import {ISplitMain} from "splits-utils/interfaces/ISplitMain.sol";
-import {
-    PassThroughWalletFactory, PassThroughWalletImpl
-} from "splits-pass-through-wallet/PassThroughWalletFactory.sol";
-import {SwapperFactory, SwapperImpl} from "splits-swapper/SwapperFactory.sol";
-import {WalletImpl} from "splits-utils/WalletImpl.sol";
 import {_sortRecipients} from "splits-utils/recipients.sol";
+import {CreateOracleParams, IOracleFactory} from "splits-oracle/interfaces/IOracleFactory.sol";
+import {IOracle} from "splits-oracle/interfaces/IOracle.sol";
+import {ISplitMain} from "splits-utils/interfaces/ISplitMain.sol";
+import {PassThroughWalletImpl} from "splits-pass-through-wallet/PassThroughWalletImpl.sol";
+import {PassThroughWalletFactory} from "splits-pass-through-wallet/PassThroughWalletFactory.sol";
+import {SwapperImpl} from "splits-swapper/SwapperImpl.sol";
+import {SwapperFactory} from "splits-swapper/SwapperFactory.sol";
+import {WalletImpl} from "splits-utils/WalletImpl.sol";
 
 /// @title Diversifier Factory
 /// @author 0xSplits
