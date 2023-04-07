@@ -2,14 +2,17 @@
 pragma solidity ^0.8.17;
 
 import {_sortRecipients} from "splits-utils/recipients.sol";
-import {CreateOracleParams, IOracleFactory} from "splits-oracle/interfaces/IOracleFactory.sol";
-import {IOracle} from "splits-oracle/interfaces/IOracle.sol";
+import {AddressUtils, ADDRESS_ZERO} from "splits-utils/AddressUtils.sol";
 import {ISplitMain} from "splits-utils/interfaces/ISplitMain.sol";
+import {OracleImpl} from "splits-oracle/OracleImpl.sol";
+import {OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
 import {PassThroughWalletImpl} from "splits-pass-through-wallet/PassThroughWalletImpl.sol";
 import {PassThroughWalletFactory} from "splits-pass-through-wallet/PassThroughWalletFactory.sol";
 import {SwapperImpl} from "splits-swapper/SwapperImpl.sol";
 import {SwapperFactory} from "splits-swapper/SwapperFactory.sol";
 import {WalletImpl} from "splits-utils/WalletImpl.sol";
+
+// TODO: do we need more info in event?
 
 /// @title Diversifier Factory
 /// @author 0xSplits
@@ -20,50 +23,31 @@ import {WalletImpl} from "splits-utils/WalletImpl.sol";
 /// Please be aware, owner has _FULL CONTROL_ of the deployment.
 /// @dev This contract uses token = address(0) to refer to ETH.
 contract DiversifierFactory {
-    /// -----------------------------------------------------------------------
-    /// events
-    /// -----------------------------------------------------------------------
+    using AddressUtils for address;
 
     event CreateDiversifier(address indexed diversifier);
-
-    /// -----------------------------------------------------------------------
-    /// structs
-    /// -----------------------------------------------------------------------
-
-    struct CreateOracleAndDiversifierParams {
-        CreateOracleParams createOracle;
-        CreateDiversifierParams createDiversifier;
-    }
 
     struct CreateDiversifierParams {
         address owner;
         bool paused;
-        Recipient[] recipients;
+        OracleParams oracleParams;
+        RecipientParams[] recipientParams;
     }
 
-    struct Recipient {
+    struct RecipientParams {
         address account;
-        SwapperImpl.InitParams createSwapper;
+        CreateSwapperParams createSwapperParams;
         uint32 percentAllocation;
     }
 
-    /// -----------------------------------------------------------------------
-    /// storage
-    /// -----------------------------------------------------------------------
-
-    /// -----------------------------------------------------------------------
-    /// storage - constants & immutables
-    /// -----------------------------------------------------------------------
-
-    address internal constant ZERO_ADDRESS = address(0);
+    struct CreateSwapperParams {
+        address beneficiary;
+        address tokenToBeneficiary;
+    }
 
     ISplitMain public immutable splitMain;
     SwapperFactory public immutable swapperFactory;
     PassThroughWalletFactory public immutable passThroughWalletFactory;
-
-    /// -----------------------------------------------------------------------
-    /// constructor
-    /// -----------------------------------------------------------------------
 
     constructor(
         ISplitMain splitMain_,
@@ -76,86 +60,78 @@ contract DiversifierFactory {
     }
 
     /// -----------------------------------------------------------------------
-    /// functions
-    /// -----------------------------------------------------------------------
-
-    /// -----------------------------------------------------------------------
     /// functions - public & external
     /// -----------------------------------------------------------------------
 
-    function createDiversifier(CreateDiversifierParams calldata params_) external returns (address) {
-        return _createDiversifier(params_);
-    }
+    function createDiversifier(CreateDiversifierParams calldata params_) external returns (address diversifier) {
+        // create pass-through wallet w {this} as owner & no passThrough
+        PassThroughWalletImpl passThroughWallet = passThroughWalletFactory.createPassThroughWallet(
+            PassThroughWalletImpl.InitParams({owner: address(this), paused: params_.paused, passThrough: ADDRESS_ZERO})
+        );
+        diversifier = address(passThroughWallet);
 
-    /// @dev params_.createDiversifier.recipients[i].createSwapper.oracle are overridden by newly created oracle
-    function createOracleAndDiversifier(CreateOracleAndDiversifierParams calldata params_) external returns (address) {
-        IOracle oracle = params_.createOracle.factory.createOracle(params_.createOracle.data);
+        // create split w diversifier (pass-through wallet) as controller
+        (address[] memory sortedAccounts, uint32[] memory sortedPercentAllocations) =
+            _parseRecipientParams(diversifier, params_.oracleParams, params_.recipientParams);
+        address passThroughSplit = splitMain.createSplit({
+            accounts: sortedAccounts,
+            percentAllocations: sortedPercentAllocations,
+            distributorFee: 0,
+            controller: diversifier
+        });
 
-        CreateDiversifierParams memory createDiversifierParams = params_.createDiversifier;
-        uint256 length = createDiversifierParams.recipients.length;
-        for (uint256 i; i < length;) {
-            // if recipient isn't a swapper, oracle will be discarded anyway
-            createDiversifierParams.recipients[i].createSwapper.oracle = oracle;
+        // set split address as passThrough & transfer ownership from factory
+        passThroughWallet.setPassThrough(passThroughSplit);
+        passThroughWallet.transferOwnership(params_.owner);
 
-            unchecked {
-                ++i;
-            }
-        }
-        return _createDiversifier(createDiversifierParams);
+        emit CreateDiversifier(diversifier);
     }
 
     /// -----------------------------------------------------------------------
     /// functions - private & internal
     /// -----------------------------------------------------------------------
 
-    function _createDiversifier(CreateDiversifierParams memory params_) internal returns (address diversifier) {
-        // create pass-through wallet w self as owner & no passThrough
-        PassThroughWalletImpl passThroughWallet = passThroughWalletFactory.createPassThroughWallet(
-            PassThroughWalletImpl.InitParams({owner: address(this), paused: params_.paused, passThrough: ZERO_ADDRESS})
-        );
+    function _parseRecipientParams(
+        address diversifier_,
+        OracleParams calldata oracleParams_,
+        RecipientParams[] calldata recipientParams_
+    ) internal returns (address[] memory accounts, uint32[] memory percentAllocations) {
+        // parse oracle params for to-be-recipient swappers
+        OracleImpl oracle = oracleParams_._parseIntoOracle();
+        // if oracle is new & {this} is owner, transfer ownership to diversifier
+        if ((address(oracleParams_.oracle)._isEmpty()) && oracle.owner() == address(this)) {
+            oracle.transferOwnership(diversifier_);
+        }
+        OracleParams memory swapperOracleParams;
+        swapperOracleParams.oracle = oracle;
 
-        (address[] memory accounts, uint32[] memory percentAllocations) = _parseRecipients(params_.recipients);
-        (accounts, percentAllocations) = _sortRecipients(accounts, percentAllocations);
-
-        // create split w pass-through wallet as controller
-        address passThroughSplit = payable(
-            splitMain.createSplit({
-                accounts: accounts,
-                percentAllocations: percentAllocations,
-                distributorFee: 0,
-                controller: address(passThroughWallet)
-            })
-        );
-
-        // set split address as passThrough & transfer ownership from factory
-        passThroughWallet.setPassThrough(passThroughSplit);
-        passThroughWallet.transferOwnership(params_.owner);
-
-        diversifier = address(passThroughWallet);
-        emit CreateDiversifier(diversifier);
-    }
-
-    function _parseRecipients(Recipient[] memory recipients_)
-        internal
-        returns (address[] memory accounts, uint32[] memory percentAllocations)
-    {
-        uint256 length = recipients_.length;
+        // parse recipient params
+        uint256 length = recipientParams_.length;
         accounts = new address[](length);
         percentAllocations = new uint32[](length);
         for (uint256 i; i < length;) {
-            Recipient memory recipient = recipients_[i];
-            accounts[i] = _isSwapper(recipient)
-                ? address(swapperFactory.createSwapper(recipient.createSwapper))
-                : recipient.account;
-            percentAllocations[i] = recipient.percentAllocation;
+            RecipientParams calldata recipientParams = recipientParams_[i];
+            // if recipient account not provided, create a new swapper owned by diversifier using oracle and other provided params
+            accounts[i] = (recipientParams.account._isNotEmpty())
+                ? recipientParams.account
+                : address(
+                    swapperFactory.createSwapper(
+                        SwapperFactory.CreateSwapperParams({
+                            owner: diversifier_,
+                            paused: false,
+                            beneficiary: recipientParams.createSwapperParams.beneficiary,
+                            tokenToBeneficiary: recipientParams.createSwapperParams.tokenToBeneficiary,
+                            oracleParams: swapperOracleParams
+                        })
+                    )
+                );
+            percentAllocations[i] = recipientParams.percentAllocation;
 
             unchecked {
                 ++i;
             }
         }
-    }
 
-    function _isSwapper(Recipient memory recipient_) internal pure returns (bool) {
-        return recipient_.account == ZERO_ADDRESS;
+        return _sortRecipients(accounts, percentAllocations);
     }
 }
