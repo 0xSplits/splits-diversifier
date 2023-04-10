@@ -44,6 +44,7 @@ contract DiversifierFactoryTest is BaseTest {
 
     OracleParams oracleParams;
     UniV3OracleImpl.InitParams initOracleParams;
+    OracleImpl oracle;
 
     function setUp() public virtual override {
         super.setUp();
@@ -84,6 +85,9 @@ contract DiversifierFactoryTest is BaseTest {
 
         oracleParams.createOracleParams.factory = IOracleFactory(address(oracleFactory));
         oracleParams.createOracleParams.data = abi.encode(initOracleParams);
+
+        oracle = oracleFactory.createUniV3Oracle(initOracleParams);
+        oracleParams.oracle = oracle;
     }
 
     /// -----------------------------------------------------------------------
@@ -132,6 +136,7 @@ contract DiversifierFactoryTest is BaseTest {
     /// @dev it should create a pass-through wallet with the owner from args
     function testFork_createDiversifier_createsPassThroughWallet_withOwnerFromArgs() public {
         DiversifierFactory.CreateDiversifierParams memory createDiversifierParams = _createDiversifierParams();
+
         address diversifier = diversifierFactory.createDiversifier(createDiversifierParams);
         assertEq(PassThroughWalletImpl(diversifier).owner(), createDiversifierParams.owner);
     }
@@ -149,7 +154,7 @@ contract DiversifierFactoryTest is BaseTest {
     /// @dev it shouldn't create an oracle if given one
     function testFork_createDiversifier_notCreateOracleWhenProvidedOne() public {
         DiversifierFactory.CreateDiversifierParams memory createDiversifierParams = _createDiversifierParams();
-        createDiversifierParams.oracleParams.oracle = OracleImpl(users.alice);
+
         uint64 preCallOracleFactoryNonce = vm.getNonce(address(oracleFactory));
         diversifierFactory.createDiversifier(createDiversifierParams);
         uint64 postCallOracleFactoryNonce = vm.getNonce(address(oracleFactory));
@@ -159,7 +164,7 @@ contract DiversifierFactoryTest is BaseTest {
     /// @dev it shouldn't create an oracle if given one
     function testFailFork_createDiversifier_notCreateOracleWhenProvidedOne() public {
         DiversifierFactory.CreateDiversifierParams memory createDiversifierParams = _createDiversifierParams();
-        createDiversifierParams.oracleParams.oracle = OracleImpl(users.alice);
+
         vm.expectCall({callee: address(oracleFactory), data: ""});
         diversifierFactory.createDiversifier(createDiversifierParams);
     }
@@ -168,6 +173,7 @@ contract DiversifierFactoryTest is BaseTest {
     function testFork_createDiversifier_createsOracleWhenNotProvidedOne() public {
         DiversifierFactory.CreateDiversifierParams memory createDiversifierParams = _createDiversifierParams();
 
+        createDiversifierParams.oracleParams.oracle = OracleImpl(ADDRESS_ZERO);
         vm.expectCall({
             callee: address(oracleFactory),
             msgValue: 0 ether,
@@ -181,9 +187,8 @@ contract DiversifierFactoryTest is BaseTest {
         DiversifierFactory.CreateDiversifierParams memory createDiversifierParams = _createDiversifierParams();
 
         address expectedPassThroughWallet = _predictNextAddressFrom(address(passThroughWalletFactory));
-        createDiversifierParams.oracleParams.oracle = OracleImpl(users.alice);
         OracleParams memory swapperOracleParams;
-        swapperOracleParams.oracle = OracleImpl(users.alice);
+        swapperOracleParams.oracle = oracle;
 
         uint256 length = recipientParams.length;
         for (uint256 i; i < length; i++) {
@@ -225,19 +230,19 @@ contract DiversifierFactoryTest is BaseTest {
     /// @dev it should create swappers with oracle from args, if provided
     function testFork_createDiversifier_createsSwappers_withOracleFromArgs() public {
         DiversifierFactory.CreateDiversifierParams memory createDiversifierParams = _createDiversifierParams();
-        createDiversifierParams.oracleParams.oracle = OracleImpl(users.alice);
 
         address[] memory expectedSwappers = _predictNextAddressesFrom(address(swapperFactory), 2);
 
         diversifierFactory.createDiversifier(createDiversifierParams);
         for (uint256 i; i < expectedSwappers.length; i++) {
-            assertEq(address(SwapperImpl(expectedSwappers[i]).oracle()), users.alice);
+            assertEq(address(SwapperImpl(expectedSwappers[i]).oracle()), address(oracle));
         }
     }
 
     /// @dev it should create swappers with new oracle from factory args, if oracle not provided
     function testFork_createDiversifier_createsSwappers_withNewOracle() public {
         DiversifierFactory.CreateDiversifierParams memory createDiversifierParams = _createDiversifierParams();
+        createDiversifierParams.oracleParams.oracle = OracleImpl(ADDRESS_ZERO);
 
         address expectedOracle = _predictNextAddressFrom(address(oracleFactory));
         address[] memory expectedSwappers = _predictNextAddressesFrom(address(swapperFactory), 2);
@@ -300,26 +305,28 @@ contract DiversifierFactoryTest is BaseTest {
 
     function testFork_parseOracleParams_returnsExistingOracleIfProvided() public {
         oracleParams.oracle = OracleImpl(users.alice);
-        OracleImpl oracle = diversifierFactory.exposed_parseOracleParams(users.bob, oracleParams);
+        oracle = diversifierFactory.exposed_parseOracleParams(users.bob, oracleParams);
         assertEq(address(oracle), users.alice);
     }
 
     function testFork_parseOracleParams_createsNewOracleIfNotProvided() public {
+        oracleParams.oracle = OracleImpl(ADDRESS_ZERO);
         address expectedOracle = _predictNextAddressFrom(address(oracleFactory));
 
         vm.expectCall({
             callee: address(oracleFactory),
             data: abi.encodeCall(IOracleFactory.createOracle, (abi.encode(initOracleParams)))
         });
-        OracleImpl oracle = diversifierFactory.exposed_parseOracleParams(users.bob, oracleParams);
+        oracle = diversifierFactory.exposed_parseOracleParams(users.bob, oracleParams);
         assertEq(address(oracle), expectedOracle);
         assertEq(oracle.owner(), users.alice);
     }
 
     function testFork_parseOracleParams_createsNewOracleIfNotProvided_andTransfersOwnership() public {
+        oracleParams.oracle = OracleImpl(ADDRESS_ZERO);
         initOracleParams.owner = address(diversifierFactory);
         oracleParams.createOracleParams.data = abi.encode(initOracleParams);
-        OracleImpl oracle = diversifierFactory.exposed_parseOracleParams(users.bob, oracleParams);
+        oracle = diversifierFactory.exposed_parseOracleParams(users.bob, oracleParams);
         assertEq(oracle.owner(), users.bob);
     }
 
@@ -358,7 +365,7 @@ contract DiversifierFactoryTest is BaseTest {
     function testForkFuzz_parseOracleParams_returnsExistingOracleIfProvided(address oracle_) public {
         vm.assume(oracle_ != ADDRESS_ZERO);
         oracleParams.oracle = OracleImpl(oracle_);
-        OracleImpl oracle = diversifierFactory.exposed_parseOracleParams(users.bob, oracleParams);
+        oracle = diversifierFactory.exposed_parseOracleParams(users.bob, oracleParams);
         assertEq(address(oracle), oracle_);
     }
 
@@ -379,7 +386,7 @@ contract DiversifierFactoryTest is BaseTest {
             abi.encode(users.alice)
         );
         vm.mockCall(users.alice, 0, abi.encodeCall(OwnableImpl.owner, ()), abi.encode(users.bob));
-        OracleImpl oracle = diversifierFactory.exposed_parseOracleParams(diversifier_, oracleParams);
+        oracle = diversifierFactory.exposed_parseOracleParams(diversifier_, oracleParams);
         assertEq(address(oracle), users.alice);
     }
 
