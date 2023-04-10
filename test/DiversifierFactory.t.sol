@@ -3,11 +3,13 @@ pragma solidity ^0.8.17;
 
 import "splits-tests/base.t.sol";
 
+import {CreateOracleParams, OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
 import {IOracleFactory} from "splits-oracle/interfaces/IOracleFactory.sol";
 import {ISplitMain} from "splits-utils/interfaces/ISplitMain.sol";
 import {IUniswapV3Factory, UniV3OracleFactory} from "splits-oracle/UniV3OracleFactory.sol";
+import {LibRecipients} from "splits-utils/LibRecipients.sol";
 import {OracleImpl} from "splits-oracle/OracleImpl.sol";
-import {OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
+import {OwnableImpl} from "splits-utils/OwnableImpl.sol";
 import {PassThroughWalletImpl} from "splits-pass-through-wallet/PassThroughWalletImpl.sol";
 import {PassThroughWalletFactory} from "splits-pass-through-wallet/PassThroughWalletFactory.sol";
 import {SwapperImpl} from "splits-swapper/SwapperImpl.sol";
@@ -16,9 +18,6 @@ import {UniV3OracleImpl} from "splits-oracle/UniV3OracleImpl.sol";
 import {WalletImpl} from "splits-utils/WalletImpl.sol";
 
 import {DiversifierFactory} from "../src/DiversifierFactory.sol";
-
-// TODO: add tests for oracle params
-// TODO: revisit tests for recipient params
 
 // TODO: add constrained fuzzing utils for split creation params (e.g. len(acc) == len(alloc) && sum(alloc) == 1e6)
 // TODO: add fuzzing
@@ -104,9 +103,8 @@ contract DiversifierFactoryTest is BaseTest {
     //  with diversifier owner
     //  with oracle from args, if provided
     //  with new oracle from factory args, if oracle not provided
-    // it should create a split
+    // it should create a split with the correct controller & recipients
     //  with diversifier controller
-    //  with recipients from args
 
     /// @dev it should create a pass-through wallet
     function testFork_createDiversifier_createsPassThroughWallet() public {
@@ -248,8 +246,8 @@ contract DiversifierFactoryTest is BaseTest {
         }
     }
 
-    /// @dev it should create a split
-    function testFork_createDiversifier_createsSplit() public {
+    /// @dev it should create a split with the correct controller & recipients
+    function testFork_createDiversifier_createsSplit_withCorrectControllerAndRecipients() public {
         DiversifierFactory.CreateDiversifierParams memory createDiversifierParams = _createDiversifierParams();
 
         address expectedPassThroughWallet = _predictNextAddressFrom(address(passThroughWalletFactory));
@@ -294,74 +292,118 @@ contract DiversifierFactoryTest is BaseTest {
         assertEq(splitMain.getController(expectedSplit), diversifier);
     }
 
-    // TODO: technically this is already covered in the og create split check?
-    /// @dev it should create a split with recipients from args
+    /// -----------------------------------------------------------------------
+    /// tests - basic - _parseOracleParams
+    /// -----------------------------------------------------------------------
+
+    function testFork_parseOracleParams_returnsExistingOracleIfProvided() public {
+        oracleParams.oracle = OracleImpl(users.alice);
+        OracleImpl oracle = diversifierFactory.exposed_parseOracleParams(users.bob, oracleParams);
+        assertEq(address(oracle), users.alice);
+    }
+
+    function testFork_parseOracleParams_createsNewOracleIfNotProvided() public {
+        address expectedOracle = _predictNextAddressFrom(address(oracleFactory));
+
+        vm.expectCall({
+            callee: address(oracleFactory),
+            data: abi.encodeCall(IOracleFactory.createOracle, (abi.encode(initOracleParams)))
+        });
+        OracleImpl oracle = diversifierFactory.exposed_parseOracleParams(users.bob, oracleParams);
+        assertEq(address(oracle), expectedOracle);
+        assertEq(oracle.owner(), users.alice);
+    }
+
+    function testFork_parseOracleParams_createsNewOracleIfNotProvided_andTransfersOwnership() public {
+        initOracleParams.owner = address(diversifierFactory);
+        oracleParams.createOracleParams.data = abi.encode(initOracleParams);
+        OracleImpl oracle = diversifierFactory.exposed_parseOracleParams(users.bob, oracleParams);
+        assertEq(oracle.owner(), users.bob);
+    }
 
     /// -----------------------------------------------------------------------
     /// tests - basic - _parseRecipientParams
     /// -----------------------------------------------------------------------
 
-    /* function testFork_parseRecipientParams() public { */
-    /*     DiversifierFactory.CreateDiversifierParams memory createDiversifierParams = _createDiversifierParams(); */
+    function testFork_parseRecipientParams() public {
+        uint256 length = recipientParams.length;
+        uint64 nonce = vm.getNonce(address(swapperFactory));
+        address[] memory accounts = new address[](length);
+        uint32[] memory percentAllocations = new uint32[](length);
+        for (uint256 i; i < length; i++) {
+            accounts[i] = recipientParams[i].account._isNotEmpty()
+                ? recipientParams[i].account
+                : _predictNextAddressFrom(address(swapperFactory), nonce++);
+            percentAllocations[i] = recipientParams[i].percentAllocation;
+        }
+        LibRecipients._sortRecipientsInPlace(accounts, percentAllocations);
 
-    /*     address[] memory accounts = new address[](2); */
-    /*     // new swapper address is mock'd to return users.bob */
-    /*     (accounts[0], accounts[1]) = (createDiversifierParams.recipientParams[0].account, users.bob); */
-    /*     uint32[] memory percentAllocations = new uint32[](2); */
-    /*     (percentAllocations[0], percentAllocations[1]) = ( */
-    /*         createDiversifierParams.recipientParams[0].percentAllocation, */
-    /*         createDiversifierParams.recipientParams[1].percentAllocation */
-    /*     ); */
+        (address[] memory parsedAccounts, uint32[] memory parsedPercentAllocations) =
+            diversifierFactory.exposed_parseRecipientParams(users.alice, OracleImpl(users.bob), recipientParams);
 
-    /*     vm.mockCall({ */
-    /*         callee: address(swapperFactory), */
-    /*         msgValue: 0, */
-    /*         data: abi.encodeCall(SwapperFactory.createSwapper, (swapperInit)), */
-    /*         returnData: abi.encode(users.bob) */
-    /*     }); */
-    /*     (address[] memory parsedAccounts, uint32[] memory parsedPercentAllocations) = */
-    /*         diversifierFactory.exposed_parseRecipientParams(recipientParams); */
-
-    /*     assertEq(parsedAccounts, accounts); */
-    /*     assertEq(parsedPercentAllocations, percentAllocations); */
-    /* } */
+        assertEq(parsedAccounts, accounts);
+        assertEq(parsedPercentAllocations, percentAllocations);
+    }
 
     /// -----------------------------------------------------------------------
     /// tests - fuzz
     /// -----------------------------------------------------------------------
 
     /// -----------------------------------------------------------------------
+    /// tests - fuzz - _parseOracleParams
+    /// -----------------------------------------------------------------------
+
+    function testForkFuzz_parseOracleParams_returnsExistingOracleIfProvided(address oracle_) public {
+        vm.assume(oracle_ != ADDRESS_ZERO);
+        oracleParams.oracle = OracleImpl(oracle_);
+        OracleImpl oracle = diversifierFactory.exposed_parseOracleParams(users.bob, oracleParams);
+        assertEq(address(oracle), oracle_);
+    }
+
+    function testForkFuzz_parseOracleParams_createsNewOracleIfNotProvided(
+        address diversifier_,
+        CreateOracleParams calldata createOracleParams_
+    ) public {
+        /* vm.assume(createOracleParams_.data.length > 0); */
+        /* assumeNoPrecompiles(address(createOracleParams_.factory)); */
+        /* assumePayable(address(createOracleParams_.factory)); */
+
+        oracleParams.oracle = OracleImpl(ADDRESS_ZERO);
+        oracleParams.createOracleParams = createOracleParams_;
+        vm.mockCall(
+            address(createOracleParams_.factory),
+            0,
+            abi.encodeCall(IOracleFactory.createOracle, (createOracleParams_.data)),
+            abi.encode(users.alice)
+        );
+        vm.mockCall(users.alice, 0, abi.encodeCall(OwnableImpl.owner, ()), abi.encode(users.bob));
+        OracleImpl oracle = diversifierFactory.exposed_parseOracleParams(diversifier_, oracleParams);
+        assertEq(address(oracle), users.alice);
+    }
+
+    /// -----------------------------------------------------------------------
     /// tests - fuzz - _parseRecipientParams
     /// -----------------------------------------------------------------------
 
-    /* function testForkFuzz_parseRecipientParams(DiversifierFactory.RecipientParams[] memory recipientParams_) public { */
-    /*     uint256 length = recipientParams_.length; */
-    /*     address[] memory accounts = new address[](length); */
-    /*     uint32[] memory percentAllocations = new uint32[](length); */
-    /*     // new swapper addresses are mock'd to return their index */
-    /*     for (uint256 i; i < length; i++) { */
-    /*         DiversifierFactory.RecipientParams memory recipient = recipientParams_[i]; */
-    /*         percentAllocations[i] = recipient.percentAllocation; */
-    /*         if (recipient.account != ADDRESS_ZERO) { */
-    /*             accounts[i] = recipient.account; */
-    /*         } else { */
-    /*             address mockSwapper = address(bytes20(keccak256(abi.encode(recipient.createSwapper)))); */
-    /*             accounts[i] = mockSwapper; */
-    /*             vm.mockCall({ */
-    /*                 callee: address(swapperFactory), */
-    /*                 msgValue: 0, */
-    /*                 data: abi.encodeCall(SwapperFactory.createSwapper, (recipient.createSwapper)), */
-    /*                 returnData: abi.encode(mockSwapper) */
-    /*             }); */
-    /*         } */
-    /*     } */
+    function testForkFuzz_parseRecipientParams(DiversifierFactory.RecipientParams[] calldata recipientParams_) public {
+        uint256 length = recipientParams_.length;
+        uint64 nonce = vm.getNonce(address(swapperFactory));
+        address[] memory accounts = new address[](length);
+        uint32[] memory percentAllocations = new uint32[](length);
+        for (uint256 i; i < length; i++) {
+            accounts[i] = recipientParams_[i].account._isNotEmpty()
+                ? recipientParams_[i].account
+                : _predictNextAddressFrom(address(swapperFactory), nonce++);
+            percentAllocations[i] = recipientParams_[i].percentAllocation;
+        }
+        LibRecipients._sortRecipientsInPlace(accounts, percentAllocations);
 
-    /*     (address[] memory parsedAccounts, uint32[] memory parsedPercentAllocations) = */
-    /*         diversifierFactory.exposed_parseRecipientParams(recipientParams_); */
+        (address[] memory parsedAccounts, uint32[] memory parsedPercentAllocations) =
+            diversifierFactory.exposed_parseRecipientParams(users.alice, OracleImpl(users.bob), recipientParams_);
 
-    /*     assertEq(parsedAccounts, accounts); */
-    /*     assertEq(parsedPercentAllocations, percentAllocations); */
-    /* } */
+        assertEq(parsedAccounts, accounts);
+        assertEq(parsedPercentAllocations, percentAllocations);
+    }
 
     /// -----------------------------------------------------------------------
     /// internal
