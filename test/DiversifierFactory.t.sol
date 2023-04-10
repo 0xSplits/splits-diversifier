@@ -19,6 +19,8 @@ import {WalletImpl} from "splits-utils/WalletImpl.sol";
 
 import {DiversifierFactory} from "../src/DiversifierFactory.sol";
 
+// TODO: create oracle in setup; also save creation data for testing later
+
 // TODO: add constrained fuzzing utils for split creation params (e.g. len(acc) == len(alloc) && sum(alloc) == 1e6)
 // TODO: add fuzzing
 
@@ -169,7 +171,7 @@ contract DiversifierFactoryTest is BaseTest {
         vm.expectCall({
             callee: address(oracleFactory),
             msgValue: 0 ether,
-            data: abi.encodeWithSignature("createOracle(bytes)", abi.encode(initOracleParams))
+            data: abi.encodeCall(IOracleFactory.createOracle, abi.encode(initOracleParams))
         });
         diversifierFactory.createDiversifier(createDiversifierParams);
     }
@@ -229,7 +231,7 @@ contract DiversifierFactoryTest is BaseTest {
 
         diversifierFactory.createDiversifier(createDiversifierParams);
         for (uint256 i; i < expectedSwappers.length; i++) {
-            assertEq(address(SwapperImpl(expectedSwappers[i]).$oracle()), users.alice);
+            assertEq(address(SwapperImpl(expectedSwappers[i]).oracle()), users.alice);
         }
     }
 
@@ -242,7 +244,7 @@ contract DiversifierFactoryTest is BaseTest {
 
         diversifierFactory.createDiversifier(createDiversifierParams);
         for (uint256 i; i < expectedSwappers.length; i++) {
-            assertEq(address(SwapperImpl(expectedSwappers[i]).$oracle()), expectedOracle);
+            assertEq(address(SwapperImpl(expectedSwappers[i]).oracle()), expectedOracle);
         }
     }
 
