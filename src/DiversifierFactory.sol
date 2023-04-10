@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.17;
 
-import {_sortRecipients} from "splits-utils/recipients.sol";
 import {AddressUtils, ADDRESS_ZERO} from "splits-utils/AddressUtils.sol";
 import {ISplitMain} from "splits-utils/interfaces/ISplitMain.sol";
+import {LibRecipients, PackedRecipient} from "splits-utils/LibRecipients.sol";
 import {OracleImpl} from "splits-oracle/OracleImpl.sol";
 import {OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
 import {PassThroughWalletImpl} from "splits-pass-through-wallet/PassThroughWalletImpl.sol";
@@ -24,6 +24,8 @@ import {WalletImpl} from "splits-utils/WalletImpl.sol";
 /// @dev This contract uses token = address(0) to refer to ETH.
 contract DiversifierFactory {
     using AddressUtils for address;
+    using LibRecipients for PackedRecipient[];
+    using {LibRecipients._pack} for address;
 
     event CreateDiversifier(address indexed diversifier);
 
@@ -34,6 +36,8 @@ contract DiversifierFactory {
         RecipientParams[] recipientParams;
     }
 
+    // TODO: should we use two structs instead, one for swappers one for non-swappers?
+    // address array needs to be sorted anyway so ordering of struct[] calldata is unimportant
     struct RecipientParams {
         address account;
         CreateSwapperParams createSwapperParams;
@@ -70,9 +74,12 @@ contract DiversifierFactory {
         );
         diversifier = address(passThroughWallet);
 
+        // parse oracle params for swapper-recipients
+        OracleImpl oracle = _parseOracleParams(diversifier, params_.oracleParams);
+
         // create split w diversifier (pass-through wallet) as controller
         (address[] memory sortedAccounts, uint32[] memory sortedPercentAllocations) =
-            _parseRecipientParams(diversifier, params_.oracleParams, params_.recipientParams);
+            _parseRecipientParams(diversifier, oracle, params_.recipientParams);
         address passThroughSplit = splitMain.createSplit({
             accounts: sortedAccounts,
             percentAllocations: sortedPercentAllocations,
@@ -93,26 +100,19 @@ contract DiversifierFactory {
 
     function _parseRecipientParams(
         address diversifier_,
-        OracleParams calldata oracleParams_,
+        OracleImpl oracle_,
         RecipientParams[] calldata recipientParams_
-    ) internal returns (address[] memory accounts, uint32[] memory percentAllocations) {
-        // parse oracle params for to-be-recipient swappers
-        OracleImpl oracle = oracleParams_._parseIntoOracle();
-        // if oracle is new & {this} is owner, transfer ownership to diversifier
-        if ((address(oracleParams_.oracle)._isEmpty()) && oracle.owner() == address(this)) {
-            oracle.transferOwnership(diversifier_);
-        }
+    ) internal returns (address[] memory, uint32[] memory) {
         OracleParams memory swapperOracleParams;
-        swapperOracleParams.oracle = oracle;
+        swapperOracleParams.oracle = oracle_;
 
         // parse recipient params
         uint256 length = recipientParams_.length;
-        accounts = new address[](length);
-        percentAllocations = new uint32[](length);
+        PackedRecipient[] memory packedRecipients = new PackedRecipient[](length);
         for (uint256 i; i < length;) {
             RecipientParams calldata recipientParams = recipientParams_[i];
-            // if recipient account not provided, create a new swapper owned by diversifier using oracle and other provided params
-            accounts[i] = (recipientParams.account._isNotEmpty())
+            // use recipient account or, if empty, create a new swapper owned by diversifier using oracle & other args
+            address account = (recipientParams.account._isNotEmpty())
                 ? recipientParams.account
                 : address(
                     swapperFactory.createSwapper(
@@ -125,13 +125,25 @@ contract DiversifierFactory {
                         })
                     )
                 );
-            percentAllocations[i] = recipientParams.percentAllocation;
+            packedRecipients[i] = account._pack(recipientParams.percentAllocation);
 
             unchecked {
                 ++i;
             }
         }
 
-        return _sortRecipients(accounts, percentAllocations);
+        packedRecipients._sortInPlace();
+        return packedRecipients._unpackAccountsInPlace();
+    }
+
+    function _parseOracleParams(address diversifier_, OracleParams calldata oracleParams_)
+        internal
+        returns (OracleImpl oracle)
+    {
+        oracle = oracleParams_._parseIntoOracle();
+        // if oracle is new & {this} is owner, transfer ownership to diversifier
+        if ((address(oracleParams_.oracle)._isEmpty()) && oracle.owner() == address(this)) {
+            oracle.transferOwnership(diversifier_);
+        }
     }
 }
