@@ -12,8 +12,6 @@ import {SwapperImpl} from "splits-swapper/SwapperImpl.sol";
 import {SwapperFactory} from "splits-swapper/SwapperFactory.sol";
 import {WalletImpl} from "splits-utils/WalletImpl.sol";
 
-// TODO: do we need more info in event?
-
 /// @title Diversifier Factory
 /// @author 0xSplits
 /// @notice Factory for creating Diversifiers.
@@ -36,8 +34,6 @@ contract DiversifierFactory {
         RecipientParams[] recipientParams;
     }
 
-    // TODO: should we use two structs instead, one for swappers one for non-swappers?
-    // address array needs to be sorted anyway so ordering of struct[] calldata is unimportant
     struct RecipientParams {
         address account;
         CreateSwapperParams createSwapperParams;
