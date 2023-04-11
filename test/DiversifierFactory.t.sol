@@ -19,8 +19,6 @@ import {WalletImpl} from "splits-utils/WalletImpl.sol";
 
 import {DiversifierFactory} from "../src/DiversifierFactory.sol";
 
-// TODO: create oracle in setup; also save creation data for testing later
-
 // TODO: add constrained fuzzing utils for split creation params (e.g. len(acc) == len(alloc) && sum(alloc) == 1e6)
 // TODO: add fuzzing
 
