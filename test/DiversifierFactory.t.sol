@@ -89,11 +89,7 @@ contract DiversifierFactoryTest is BaseTest {
     }
 
     /// -----------------------------------------------------------------------
-    /// tests - basic
-    /// -----------------------------------------------------------------------
-
-    /// -----------------------------------------------------------------------
-    /// tests - basic - createDiversifier
+    /// createDiversifier
     /// -----------------------------------------------------------------------
 
     /// testing tree
@@ -298,13 +294,20 @@ contract DiversifierFactoryTest is BaseTest {
     }
 
     /// -----------------------------------------------------------------------
-    /// tests - basic - _parseOracleParams
+    /// _parseOracleParams
     /// -----------------------------------------------------------------------
 
     function testFork_parseOracleParams_returnsExistingOracleIfProvided() public {
         oracleParams.oracle = OracleImpl(users.alice);
         oracle = diversifierFactory.exposed_parseOracleParams(users.bob, oracleParams);
         assertEq(address(oracle), users.alice);
+    }
+
+    function testForkFuzz_parseOracleParams_returnsExistingOracleIfProvided(address oracle_) public {
+        vm.assume(oracle_ != ADDRESS_ZERO);
+        oracleParams.oracle = OracleImpl(oracle_);
+        oracle = diversifierFactory.exposed_parseOracleParams(users.bob, oracleParams);
+        assertEq(address(oracle), oracle_);
     }
 
     function testFork_parseOracleParams_createsNewOracleIfNotProvided() public {
@@ -320,6 +323,23 @@ contract DiversifierFactoryTest is BaseTest {
         assertEq(oracle.owner(), users.alice);
     }
 
+    function testForkFuzz_parseOracleParams_createsNewOracleIfNotProvided(
+        address diversifier_,
+        CreateOracleParams calldata createOracleParams_
+    ) public {
+        oracleParams.oracle = OracleImpl(ADDRESS_ZERO);
+        oracleParams.createOracleParams = createOracleParams_;
+        vm.mockCall(
+            address(createOracleParams_.factory),
+            0,
+            abi.encodeCall(IOracleFactory.createOracle, (createOracleParams_.data)),
+            abi.encode(users.alice)
+        );
+        vm.mockCall(users.alice, 0, abi.encodeCall(OwnableImpl.owner, ()), abi.encode(users.bob));
+        oracle = diversifierFactory.exposed_parseOracleParams(diversifier_, oracleParams);
+        assertEq(address(oracle), users.alice);
+    }
+
     function testFork_parseOracleParams_createsNewOracleIfNotProvided_andTransfersOwnership() public {
         oracleParams.oracle = OracleImpl(ADDRESS_ZERO);
         initOracleParams.owner = address(diversifierFactory);
@@ -329,7 +349,7 @@ contract DiversifierFactoryTest is BaseTest {
     }
 
     /// -----------------------------------------------------------------------
-    /// tests - basic - _parseRecipientParams
+    /// _parseRecipientParams
     /// -----------------------------------------------------------------------
 
     function testFork_parseRecipientParams() public {
@@ -351,46 +371,6 @@ contract DiversifierFactoryTest is BaseTest {
         assertEq(parsedAccounts, accounts);
         assertEq(parsedPercentAllocations, percentAllocations);
     }
-
-    /// -----------------------------------------------------------------------
-    /// tests - fuzz
-    /// -----------------------------------------------------------------------
-
-    /// -----------------------------------------------------------------------
-    /// tests - fuzz - _parseOracleParams
-    /// -----------------------------------------------------------------------
-
-    function testForkFuzz_parseOracleParams_returnsExistingOracleIfProvided(address oracle_) public {
-        vm.assume(oracle_ != ADDRESS_ZERO);
-        oracleParams.oracle = OracleImpl(oracle_);
-        oracle = diversifierFactory.exposed_parseOracleParams(users.bob, oracleParams);
-        assertEq(address(oracle), oracle_);
-    }
-
-    function testForkFuzz_parseOracleParams_createsNewOracleIfNotProvided(
-        address diversifier_,
-        CreateOracleParams calldata createOracleParams_
-    ) public {
-        /* vm.assume(createOracleParams_.data.length > 0); */
-        /* assumeNoPrecompiles(address(createOracleParams_.factory)); */
-        /* assumePayable(address(createOracleParams_.factory)); */
-
-        oracleParams.oracle = OracleImpl(ADDRESS_ZERO);
-        oracleParams.createOracleParams = createOracleParams_;
-        vm.mockCall(
-            address(createOracleParams_.factory),
-            0,
-            abi.encodeCall(IOracleFactory.createOracle, (createOracleParams_.data)),
-            abi.encode(users.alice)
-        );
-        vm.mockCall(users.alice, 0, abi.encodeCall(OwnableImpl.owner, ()), abi.encode(users.bob));
-        oracle = diversifierFactory.exposed_parseOracleParams(diversifier_, oracleParams);
-        assertEq(address(oracle), users.alice);
-    }
-
-    /// -----------------------------------------------------------------------
-    /// tests - fuzz - _parseRecipientParams
-    /// -----------------------------------------------------------------------
 
     function testForkFuzz_parseRecipientParams(DiversifierFactory.RecipientParams[] calldata recipientParams_) public {
         uint256 length = recipientParams_.length;
