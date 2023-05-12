@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.17;
 
-import "splits-tests/base.t.sol";
+import "splits-tests/Base.t.sol";
 
 import {CreateOracleParams, OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
+import {IOracle} from "splits-oracle/interfaces/IOracle.sol";
 import {IOracleFactory} from "splits-oracle/interfaces/IOracleFactory.sol";
 import {ISplitMain} from "splits-utils/interfaces/ISplitMain.sol";
-import {IUniswapV3Factory, UniV3OracleFactory} from "splits-oracle/UniV3OracleFactory.sol";
 import {LibRecipients} from "splits-utils/LibRecipients.sol";
 import {OracleImpl} from "splits-oracle/OracleImpl.sol";
 import {OwnableImpl} from "splits-utils/OwnableImpl.sol";
@@ -15,6 +15,7 @@ import {PassThroughWalletFactory} from "splits-pass-through-wallet/PassThroughWa
 import {SwapperImpl} from "splits-swapper/SwapperImpl.sol";
 import {SwapperFactory} from "splits-swapper/SwapperFactory.sol";
 import {UniV3OracleImpl} from "splits-oracle/UniV3OracleImpl.sol";
+import {UniV3OracleFactory} from "splits-oracle/UniV3OracleFactory.sol";
 import {WalletImpl} from "splits-utils/WalletImpl.sol";
 
 import {DiversifierFactory} from "../src/DiversifierFactory.sol";
@@ -42,17 +43,18 @@ contract DiversifierFactoryTest is BaseTest {
 
     OracleParams oracleParams;
     UniV3OracleImpl.InitParams initOracleParams;
-    OracleImpl oracle;
+    IOracle oracle;
 
     function setUp() public virtual override {
         super.setUp();
 
+        // TODO: can vm.rpcUrl be used in Base ?
+        /* forkId = vm.createSelectFork(vm.rpcUrl("mainnet"), BLOCK_NUMBER); */
         string memory MAINNET_RPC_URL = vm.envString("MAINNET_RPC_URL");
         vm.createSelectFork(MAINNET_RPC_URL, BLOCK_NUMBER);
 
         splitMain = ISplitMain(SPLIT_MAIN);
         oracleFactory = new UniV3OracleFactory({
-            uniswapV3Factory_: IUniswapV3Factory(UNISWAP_V3_FACTORY),
             weth9_: WETH9
         });
         swapperFactory = new SwapperFactory();
@@ -167,7 +169,7 @@ contract DiversifierFactoryTest is BaseTest {
     function testFork_createDiversifier_createsOracleWhenNotProvidedOne() public {
         DiversifierFactory.CreateDiversifierParams memory createDiversifierParams = _createDiversifierParams();
 
-        createDiversifierParams.oracleParams.oracle = OracleImpl(ADDRESS_ZERO);
+        createDiversifierParams.oracleParams.oracle = IOracle(ADDRESS_ZERO);
         vm.expectCall({
             callee: address(oracleFactory),
             msgValue: 0 ether,
@@ -199,7 +201,9 @@ contract DiversifierFactoryTest is BaseTest {
                                 paused: false,
                                 beneficiary: rp.createSwapperParams.beneficiary,
                                 tokenToBeneficiary: rp.createSwapperParams.tokenToBeneficiary,
-                                oracleParams: swapperOracleParams
+                                oracleParams: swapperOracleParams,
+                                defaultScaledOfferFactor: rp.createSwapperParams.defaultScaledOfferFactor,
+                                pairScaledOfferFactors: rp.createSwapperParams.pairScaledOfferFactors
                             })
                         )
                         )
@@ -236,7 +240,7 @@ contract DiversifierFactoryTest is BaseTest {
     /// @dev it should create swappers with new oracle from factory args, if oracle not provided
     function testFork_createDiversifier_createsSwappers_withNewOracle() public {
         DiversifierFactory.CreateDiversifierParams memory createDiversifierParams = _createDiversifierParams();
-        createDiversifierParams.oracleParams.oracle = OracleImpl(ADDRESS_ZERO);
+        createDiversifierParams.oracleParams.oracle = IOracle(ADDRESS_ZERO);
 
         address expectedOracle = _predictNextAddressFrom(address(oracleFactory));
         address[] memory expectedSwappers = _predictNextAddressesFrom(address(swapperFactory), 2);
@@ -298,20 +302,20 @@ contract DiversifierFactoryTest is BaseTest {
     /// -----------------------------------------------------------------------
 
     function testFork_parseOracleParams_returnsExistingOracleIfProvided() public {
-        oracleParams.oracle = OracleImpl(users.alice);
+        oracleParams.oracle = IOracle(users.alice);
         oracle = diversifierFactory.exposed_parseOracleParams(users.bob, oracleParams);
         assertEq(address(oracle), users.alice);
     }
 
     function testForkFuzz_parseOracleParams_returnsExistingOracleIfProvided(address oracle_) public {
         vm.assume(oracle_ != ADDRESS_ZERO);
-        oracleParams.oracle = OracleImpl(oracle_);
+        oracleParams.oracle = IOracle(oracle_);
         oracle = diversifierFactory.exposed_parseOracleParams(users.bob, oracleParams);
         assertEq(address(oracle), oracle_);
     }
 
     function testFork_parseOracleParams_createsNewOracleIfNotProvided() public {
-        oracleParams.oracle = OracleImpl(ADDRESS_ZERO);
+        oracleParams.oracle = IOracle(ADDRESS_ZERO);
         address expectedOracle = _predictNextAddressFrom(address(oracleFactory));
 
         vm.expectCall({
@@ -320,14 +324,16 @@ contract DiversifierFactoryTest is BaseTest {
         });
         oracle = diversifierFactory.exposed_parseOracleParams(users.bob, oracleParams);
         assertEq(address(oracle), expectedOracle);
-        assertEq(oracle.owner(), users.alice);
+        assertEq(OracleImpl(address(oracle)).owner(), users.alice);
     }
 
     function testForkFuzz_parseOracleParams_createsNewOracleIfNotProvided(
         address diversifier_,
         CreateOracleParams calldata createOracleParams_
     ) public {
-        oracleParams.oracle = OracleImpl(ADDRESS_ZERO);
+        vm.assume(address(vm) != address(createOracleParams_.factory));
+
+        oracleParams.oracle = IOracle(ADDRESS_ZERO);
         oracleParams.createOracleParams = createOracleParams_;
         vm.mockCall(
             address(createOracleParams_.factory),
@@ -341,11 +347,11 @@ contract DiversifierFactoryTest is BaseTest {
     }
 
     function testFork_parseOracleParams_createsNewOracleIfNotProvided_andTransfersOwnership() public {
-        oracleParams.oracle = OracleImpl(ADDRESS_ZERO);
+        oracleParams.oracle = IOracle(ADDRESS_ZERO);
         initOracleParams.owner = address(diversifierFactory);
         oracleParams.createOracleParams.data = abi.encode(initOracleParams);
         oracle = diversifierFactory.exposed_parseOracleParams(users.bob, oracleParams);
-        assertEq(oracle.owner(), users.bob);
+        assertEq(OracleImpl(address(oracle)).owner(), users.bob);
     }
 
     /// -----------------------------------------------------------------------
@@ -366,7 +372,7 @@ contract DiversifierFactoryTest is BaseTest {
         LibRecipients._sortRecipientsInPlace(accounts, percentAllocations);
 
         (address[] memory parsedAccounts, uint32[] memory parsedPercentAllocations) =
-            diversifierFactory.exposed_parseRecipientParams(users.alice, OracleImpl(users.bob), recipientParams);
+            diversifierFactory.exposed_parseRecipientParams(users.alice, IOracle(users.bob), recipientParams);
 
         assertEq(parsedAccounts, accounts);
         assertEq(parsedPercentAllocations, percentAllocations);
@@ -386,7 +392,7 @@ contract DiversifierFactoryTest is BaseTest {
         LibRecipients._sortRecipientsInPlace(accounts, percentAllocations);
 
         (address[] memory parsedAccounts, uint32[] memory parsedPercentAllocations) =
-            diversifierFactory.exposed_parseRecipientParams(users.alice, OracleImpl(users.bob), recipientParams_);
+            diversifierFactory.exposed_parseRecipientParams(users.alice, IOracle(users.bob), recipientParams_);
 
         assertEq(parsedAccounts, accounts);
         assertEq(parsedPercentAllocations, percentAllocations);
@@ -417,7 +423,7 @@ contract DiversifierFactoryHarness is DiversifierFactory {
 
     function exposed_parseRecipientParams(
         address diversifier_,
-        OracleImpl oracle_,
+        IOracle oracle_,
         DiversifierFactory.RecipientParams[] calldata recipientParams_
     ) external returns (address[] memory, uint32[] memory) {
         return _parseRecipientParams(diversifier_, oracle_, recipientParams_);
@@ -425,7 +431,7 @@ contract DiversifierFactoryHarness is DiversifierFactory {
 
     function exposed_parseOracleParams(address diversifier_, OracleParams calldata oracleParams_)
         external
-        returns (OracleImpl)
+        returns (IOracle)
     {
         return _parseOracleParams(diversifier_, oracleParams_);
     }

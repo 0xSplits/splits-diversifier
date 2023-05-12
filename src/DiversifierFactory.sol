@@ -2,9 +2,10 @@
 pragma solidity ^0.8.17;
 
 import {AddressUtils, ADDRESS_ZERO} from "splits-utils/AddressUtils.sol";
+import {IOracle} from "splits-oracle/interfaces/IOracle.sol";
+import {OracleImpl} from "splits-oracle/OracleImpl.sol";
 import {ISplitMain} from "splits-utils/interfaces/ISplitMain.sol";
 import {LibRecipients, PackedRecipient} from "splits-utils/LibRecipients.sol";
-import {OracleImpl} from "splits-oracle/OracleImpl.sol";
 import {OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
 import {PassThroughWalletImpl} from "splits-pass-through-wallet/PassThroughWalletImpl.sol";
 import {PassThroughWalletFactory} from "splits-pass-through-wallet/PassThroughWalletFactory.sol";
@@ -43,6 +44,8 @@ contract DiversifierFactory {
     struct CreateSwapperParams {
         address beneficiary;
         address tokenToBeneficiary;
+        uint32 defaultScaledOfferFactor;
+        SwapperImpl.SetPairScaledOfferFactorParams[] pairScaledOfferFactors;
     }
 
     ISplitMain public immutable splitMain;
@@ -71,7 +74,7 @@ contract DiversifierFactory {
         diversifier = address(passThroughWallet);
 
         // parse oracle params for swapper-recipients
-        OracleImpl oracle = _parseOracleParams(diversifier, params_.oracleParams);
+        IOracle oracle = _parseOracleParams(diversifier, params_.oracleParams);
 
         // create split w diversifier (pass-through wallet) as controller
         (address[] memory sortedAccounts, uint32[] memory sortedPercentAllocations) =
@@ -94,11 +97,10 @@ contract DiversifierFactory {
     /// functions - private & internal
     /// -----------------------------------------------------------------------
 
-    function _parseRecipientParams(
-        address diversifier_,
-        OracleImpl oracle_,
-        RecipientParams[] calldata recipientParams_
-    ) internal returns (address[] memory, uint32[] memory) {
+    function _parseRecipientParams(address diversifier_, IOracle oracle_, RecipientParams[] calldata recipientParams_)
+        internal
+        returns (address[] memory, uint32[] memory)
+    {
         OracleParams memory swapperOracleParams;
         swapperOracleParams.oracle = oracle_;
 
@@ -117,7 +119,9 @@ contract DiversifierFactory {
                             paused: false,
                             beneficiary: recipientParams.createSwapperParams.beneficiary,
                             tokenToBeneficiary: recipientParams.createSwapperParams.tokenToBeneficiary,
-                            oracleParams: swapperOracleParams
+                            oracleParams: swapperOracleParams,
+                            defaultScaledOfferFactor: recipientParams.createSwapperParams.defaultScaledOfferFactor,
+                            pairScaledOfferFactors: recipientParams.createSwapperParams.pairScaledOfferFactors
                         })
                     )
                 );
@@ -134,12 +138,12 @@ contract DiversifierFactory {
 
     function _parseOracleParams(address diversifier_, OracleParams calldata oracleParams_)
         internal
-        returns (OracleImpl oracle)
+        returns (IOracle oracle)
     {
         oracle = oracleParams_._parseIntoOracle();
         // if oracle is new & {this} is owner, transfer ownership to diversifier
-        if ((address(oracleParams_.oracle)._isEmpty()) && oracle.owner() == address(this)) {
-            oracle.transferOwnership(diversifier_);
+        if ((address(oracleParams_.oracle)._isEmpty()) && OracleImpl(address(oracle)).owner() == address(this)) {
+            OracleImpl(address(oracle)).transferOwnership(diversifier_);
         }
     }
 }
