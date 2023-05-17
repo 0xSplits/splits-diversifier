@@ -20,9 +20,6 @@ import {WalletImpl} from "splits-utils/WalletImpl.sol";
 
 import {DiversifierFactory} from "../src/DiversifierFactory.sol";
 
-// TODO: add constrained fuzzing utils for split creation params (e.g. len(acc) == len(alloc) && sum(alloc) == 1e6)
-// TODO: add fuzzing
-
 contract DiversifierFactoryTest is BaseTest {
     using AddressUtils for address;
 
@@ -43,15 +40,12 @@ contract DiversifierFactoryTest is BaseTest {
 
     OracleParams oracleParams;
     UniV3OracleImpl.InitParams initOracleParams;
-    IOracle oracle;
+    OracleImpl oracle;
 
     function setUp() public virtual override {
         super.setUp();
 
-        // TODO: can vm.rpcUrl be used in Base ?
-        /* forkId = vm.createSelectFork(vm.rpcUrl("mainnet"), BLOCK_NUMBER); */
-        string memory MAINNET_RPC_URL = vm.envString("MAINNET_RPC_URL");
-        vm.createSelectFork(MAINNET_RPC_URL, BLOCK_NUMBER);
+        vm.createSelectFork(vm.rpcUrl("mainnet"), BLOCK_NUMBER);
 
         splitMain = ISplitMain(SPLIT_MAIN);
         oracleFactory = new UniV3OracleFactory({
@@ -88,6 +82,15 @@ contract DiversifierFactoryTest is BaseTest {
 
         oracle = oracleFactory.createUniV3Oracle(initOracleParams);
         oracleParams.oracle = oracle;
+    }
+
+    function _createDiversifierParams() internal view returns (DiversifierFactory.CreateDiversifierParams memory) {
+        return DiversifierFactory.CreateDiversifierParams({
+            owner: users.alice,
+            paused: false,
+            oracleParams: oracleParams,
+            recipientParams: recipientParams
+        });
     }
 
     /// -----------------------------------------------------------------------
@@ -372,7 +375,7 @@ contract DiversifierFactoryTest is BaseTest {
         LibRecipients._sortRecipientsInPlace(accounts, percentAllocations);
 
         (address[] memory parsedAccounts, uint32[] memory parsedPercentAllocations) =
-            diversifierFactory.exposed_parseRecipientParams(users.alice, IOracle(users.bob), recipientParams);
+            diversifierFactory.exposed_parseRecipientParams(users.alice, OracleImpl(users.bob), recipientParams);
 
         assertEq(parsedAccounts, accounts);
         assertEq(parsedPercentAllocations, percentAllocations);
@@ -392,25 +395,10 @@ contract DiversifierFactoryTest is BaseTest {
         LibRecipients._sortRecipientsInPlace(accounts, percentAllocations);
 
         (address[] memory parsedAccounts, uint32[] memory parsedPercentAllocations) =
-            diversifierFactory.exposed_parseRecipientParams(users.alice, IOracle(users.bob), recipientParams_);
+            diversifierFactory.exposed_parseRecipientParams(users.alice, OracleImpl(users.bob), recipientParams_);
 
         assertEq(parsedAccounts, accounts);
         assertEq(parsedPercentAllocations, percentAllocations);
-    }
-
-    /// -----------------------------------------------------------------------
-    /// internal
-    /// -----------------------------------------------------------------------
-
-    /// @dev can't be init'd in setUp & saved to storage bc of nested dynamic array solc error
-    /// UnimplementedFeatureError: Copying of type struct DiversifierFactory.RecipientParams memory[] memory to storage not yet supported.
-    function _createDiversifierParams() internal view returns (DiversifierFactory.CreateDiversifierParams memory) {
-        return DiversifierFactory.CreateDiversifierParams({
-            owner: users.alice,
-            paused: false,
-            oracleParams: oracleParams,
-            recipientParams: recipientParams
-        });
     }
 }
 
@@ -423,7 +411,7 @@ contract DiversifierFactoryHarness is DiversifierFactory {
 
     function exposed_parseRecipientParams(
         address diversifier_,
-        IOracle oracle_,
+        OracleImpl oracle_,
         DiversifierFactory.RecipientParams[] calldata recipientParams_
     ) external returns (address[] memory, uint32[] memory) {
         return _parseRecipientParams(diversifier_, oracle_, recipientParams_);
@@ -431,7 +419,7 @@ contract DiversifierFactoryHarness is DiversifierFactory {
 
     function exposed_parseOracleParams(address diversifier_, OracleParams calldata oracleParams_)
         external
-        returns (IOracle)
+        returns (OracleImpl)
     {
         return _parseOracleParams(diversifier_, oracleParams_);
     }

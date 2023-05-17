@@ -74,7 +74,7 @@ contract DiversifierFactory {
         diversifier = address(passThroughWallet);
 
         // parse oracle params for swapper-recipients
-        IOracle oracle = _parseOracleParams(diversifier, params_.oracleParams);
+        OracleImpl oracle = _parseOracleParams(diversifier, params_.oracleParams);
 
         // create split w diversifier (pass-through wallet) as controller
         (address[] memory sortedAccounts, uint32[] memory sortedPercentAllocations) =
@@ -97,10 +97,11 @@ contract DiversifierFactory {
     /// functions - private & internal
     /// -----------------------------------------------------------------------
 
-    function _parseRecipientParams(address diversifier_, IOracle oracle_, RecipientParams[] calldata recipientParams_)
-        internal
-        returns (address[] memory, uint32[] memory)
-    {
+    function _parseRecipientParams(
+        address diversifier_,
+        OracleImpl oracle_,
+        RecipientParams[] calldata recipientParams_
+    ) internal returns (address[] memory, uint32[] memory) {
         OracleParams memory swapperOracleParams;
         swapperOracleParams.oracle = oracle_;
 
@@ -138,12 +139,12 @@ contract DiversifierFactory {
 
     function _parseOracleParams(address diversifier_, OracleParams calldata oracleParams_)
         internal
-        returns (IOracle oracle)
+        returns (OracleImpl oracle)
     {
-        oracle = oracleParams_._parseIntoOracle();
+        oracle = OracleImpl(address(oracleParams_._parseIntoOracle()));
         // if oracle is new & {this} is owner, transfer ownership to diversifier
-        if ((address(oracleParams_.oracle)._isEmpty()) && OracleImpl(address(oracle)).owner() == address(this)) {
-            OracleImpl(address(oracle)).transferOwnership(diversifier_);
+        if ((address(oracleParams_.oracle)._isEmpty()) && oracle.owner() == address(this)) {
+            oracle.transferOwnership(diversifier_);
         }
     }
 }
