@@ -1,6 +1,6 @@
 # splits-diversifier
 
-[Docs](https://dev.docs.0xsplits.xyz/templates/diversifier)
+[Docs](https://docs.0xsplits.xyz/templates/diversifier)
 
 ## What
 
