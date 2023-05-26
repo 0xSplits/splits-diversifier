@@ -6,6 +6,8 @@
 
 Diversifier is a 0xSplits template that diversifies onchain revenue.
 
+![](https://docs.0xsplits.xyz/_next/image?url=%2F_next%2Fstatic%2Fmedia%2Fdiversifier_diagram.9dfbf3b2.png&w=3840&q=75)
+
 ## Why
 
 Many onchain entities (e.g. creators, collectives, DAOs, businesses) generate onchain revenues in tokens that don't match the denominations of their expenses (e.g. salaries, taxes) resulting in [asset-liability currency mismatch](https://en.wikipedia.org/wiki/Asset%E2%80%93liability_mismatch#Currency_Mismatch).
