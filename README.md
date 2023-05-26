@@ -19,7 +19,7 @@ More generally, diversifying onchain revenue is an easy, efficient, & trustless 
 
 ### How does it diversify onchain revenue?
 
-A Split with Swappers underneath (all controlled/owned by a PassThroughWallet sitting on top).
+A [Split](https://github.com/0xSplits/splits-contracts) with [Swappers](https://github.com/0xSplits/splits-swapper) underneath (all controlled/owned by a [PassThroughWallet](https://github.com/0xSplits/splits-pass-through-wallet) sitting on top).
 
 ### How is it governed?
 
