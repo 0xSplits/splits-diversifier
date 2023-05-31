@@ -4,7 +4,7 @@
 
 ## What
 
-Diversifier is a 0xSplits template that diversifies onchain revenue.
+Diversifier is a Splits' template to diversify onchain revenue
 
 ![](https://docs.0xsplits.xyz/_next/image?url=%2F_next%2Fstatic%2Fmedia%2Fdiversifier_diagram.9dfbf3b2.png&w=3840&q=75)
 
@@ -19,14 +19,14 @@ More generally, diversifying onchain revenue is an easy, efficient, & trustless 
 
 ### How does it diversify onchain revenue?
 
-A [Split](https://github.com/0xSplits/splits-contracts) with [Swappers](https://github.com/0xSplits/splits-swapper) underneath (all controlled/owned by a [PassThroughWallet](https://github.com/0xSplits/splits-pass-through-wallet) sitting on top).
+A [Split](https://github.com/0xSplits/splits-contracts) with one or more [Swappers](https://github.com/0xSplits/splits-swapper) underneath (all controlled/owned by a [PassThroughWallet](https://github.com/0xSplits/splits-pass-through-wallet) sitting on top).
 
 ### How is it governed?
 
 A Diversifier's owner, if set, has _FULL CONTROL_ of the deployment.
 It may, at any time for any reason, change any mutable storage in any of the underlying components, as well as execute arbitrary calls on behalf of the Diversifier.
-In situations where flows ultimately belong to or benefit more than a single person & immutability is a nonstarter, we strongly recommend using multisigs or DAOs for governance.
-To the extent your oracle has a separate owner as well, similar logic applies.
+In situations where flows ultimately belong to or benefit more than a single person & immutability is a nonstarter, we strongly recommend using a multisig or DAO for governance.
+To the extent your Oracle or any other submodule has a separate owner as well, similar logic applies.
 
 ## Lint
 
