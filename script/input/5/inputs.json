@@ -1,0 +1,5 @@
+{
+  "passThroughWalletFactory": "0xF5aCC1568706Fbf9A55a77DdBe8DF907Da95dD6B",
+  "splitMain": "0x2ed6c4B5dA6378c7897AC67Ba9e43102Feb694EE",
+  "swapperFactory": "0xa244bbe019cf1BA177EE5A532250be2663Fb55cA"
+}
