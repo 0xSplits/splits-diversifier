@@ -1,12 +1,12 @@
 # splits-diversifier
 
-[Docs](https://docs.0xsplits.xyz/templates/diversifier)
+[Docs](https://splits.org/protocol/docs/templates/diversifier)
 
 ## What
 
 Diversifier is a Splits' template to diversify onchain revenue
 
-![](https://docs.0xsplits.xyz/_next/image?url=%2F_next%2Fstatic%2Fmedia%2Fdiversifier_diagram.9dfbf3b2.png&w=3840&q=75)
+![](https://splits.org/protocol/docs/_next/image?url=%2Fprotocol%2Fdocs%2F_next%2Fstatic%2Fmedia%2Fdiversifier_diagram.9dfbf3b2.png&w=3840&q=75)
 
 ## Why
 
